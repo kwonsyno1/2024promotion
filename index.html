@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF 문서 열람</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #f5f5f5;
+    }
+    header {
+      background-color: #004b8d;
+      color: white;
+      padding: 1rem;
+      width: 100%;
+      text-align: center;
+      font-size: 1.5rem;
+    }
+    .pdf-container {
+      margin-top: 2rem;
+      width: 90%;
+      max-width: 1000px;
+      height: 90vh;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border: 1px solid #ccc;
+      background-color: white;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <header>PDF 문서 열람 페이지</header>
+  <div class="pdf-container">
+    <iframe src="https://drive.google.com/file/d/1F3mJMdRMyOAnwHhHKflhlmnXlt5ZazaE/preview"></iframe>
+  </div>
+</body>
+</html>
