@@ -9,6 +9,16 @@ from sklearn.metrics import r2_score
 import base64
 from io import BytesIO
 
+# --- R 연동을 위한 라이브러리 (rpy2) ---
+try:
+    import rpy2.robjects as robjects
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.packages import importr
+    RPY2_AVAILABLE = True
+    pandas2ri.activate() # Pandas DF <-> R DF 자동 변환 활성화
+except ImportError:
+    RPY2_AVAILABLE = False
+
 # --- 1. 페이지 기본 설정 및 한글 폰트 설정 ---
 st.set_page_config(page_title="고리 비행기 데이터 분석", page_icon="✈️", layout="wide")
 
@@ -80,7 +90,6 @@ if uploaded_file is not None:
 
         with col2:
             st.subheader("주요 변인 산점도 분석")
-            # 데이터에 해당 컬럼이 있는지 확인 후 그리기
             selected_cols = ['앞쪽고리지름(cm)', '전체 길이(cm)', target_col]
             available_cols = [c for c in selected_cols if c in df.columns]
             
@@ -94,8 +103,11 @@ if uploaded_file is not None:
                 st.warning("산점도를 그리기 위한 필수 컬럼이 부족합니다.")
                 pairplot_b64 = ""
 
-        # --- 머신러닝 모델 학습 섹션 ---
-        st.header("3. 머신러닝 모델 학습 (랜덤 포레스트 회귀)")
+        # --- 머신러닝 모델 학습 섹션 (R 엔진 결합) ---
+        st.header("3. 머신러닝 모델 학습 (Python vs R 엔진)")
+        
+        st.info("💡 파이썬의 Scikit-learn 대신 **R 프로그램의 randomForest 엔진**을 구동하여 분석할 수 있습니다.")
+        use_r = st.toggle("🚀 R 프로그램 분석 엔진 사용하기", value=False)
         
         features = df.columns.drop(target_col)
         X = df[features]
@@ -104,16 +116,76 @@ if uploaded_file is not None:
         # 데이터 분할
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        with st.spinner("머신러닝 모델을 학습 중입니다..."):
-            # 모델 생성 및 학습
-            model = RandomForestRegressor(n_estimators=100, random_state=42)
-            model.fit(X_train, y_train)
-            
-            # 결과 예측 및 평가
-            y_pred = model.predict(X_test)
-            r2 = r2_score(y_test, y_pred)
+        model_trained = False
 
-        st.success(f"모델 학습 완료! (모델 설명력 R²: {r2:.4f})")
+        # --- R 엔진을 사용할 경우 ---
+        if use_r:
+            if not RPY2_AVAILABLE:
+                st.error("⚠️ 현재 구동 환경에 R 프로그램이나 'rpy2' 모듈이 설치되어 있지 않습니다. 기본 설정인 Python 엔진으로 대체합니다.")
+                use_r = False
+            else:
+                with st.spinner("R 언어의 randomForest 패키지를 백그라운드에서 구동하여 학습 중입니다..."):
+                    try:
+                        # R 환경에서 한글/특수문자 컬럼명 오류를 방지하기 위해 변수명 임시 정제
+                        safe_cols = [c.replace('(', '_').replace(')', '_').replace(' ', '_') for c in df.columns]
+                        safe_df = df.copy()
+                        safe_df.columns = safe_cols
+                        safe_target_col = target_col.replace('(', '_').replace(')', '_').replace(' ', '_')
+
+                        # R 전용 학습/테스트 데이터셋 준비
+                        r_train_df = safe_df.loc[X_train.index]
+                        r_test_df = safe_df.loc[X_test.index]
+                        
+                        r_train_rpy = pandas2ri.py2rpy(r_train_df)
+                        r_test_rpy = pandas2ri.py2rpy(r_test_df)
+
+                        base = importr('base')
+                        stats = importr('stats')
+                        
+                        # R의 randomForest 패키지 로드 (없으면 자동 설치)
+                        try:
+                            r_rf = importr('randomForest')
+                        except:
+                            utils = importr('utils')
+                            utils.install_packages('randomForest', repos='http://cran.us.r-project.org')
+                            r_rf = importr('randomForest')
+                        
+                        # R 분석 포뮬러(Formula) 생성
+                        formula = robjects.Formula(f"{safe_target_col} ~ .")
+                        
+                        # R 엔진으로 모델 학습 및 예측
+                        model_r = r_rf.randomForest(formula, data=r_train_rpy, ntree=100, importance=True)
+                        r_pred = stats.predict(model_r, r_test_rpy)
+                        
+                        y_pred = pandas2ri.rpy2py(r_pred)
+                        r2 = r2_score(y_test, y_pred)
+                        
+                        # R 엔진에서 변수 중요도 추출 (%IncMSE 기준)
+                        imp_matrix = pandas2ri.rpy2py(r_rf.importance(model_r))
+                        importances = np.array(imp_matrix[:, 0]) 
+                        indices = np.argsort(importances)
+                        
+                        st.success(f"✅ R 엔진(randomForest)으로 학습 완료! (모델 설명력 R²: {r2:.4f})")
+                        model_trained = True
+                        
+                    except Exception as e:
+                        st.error(f"R 엔진 구동 중 오류가 발생했습니다. (Python으로 대체됩니다) 상세 오류: {e}")
+                        use_r = False
+
+        # --- 파이썬 엔진을 사용할 경우 (또는 R 연동 실패 시) ---
+        if not use_r and not model_trained:
+            with st.spinner("Python(Scikit-learn) 머신러닝 모델을 학습 중입니다..."):
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+                r2 = r2_score(y_test, y_pred)
+                
+                importances = model.feature_importances_
+                indices = np.argsort(importances)
+                
+                st.success(f"✅ Python 엔진으로 모델 학습 완료! (모델 설명력 R²: {r2:.4f})")
+                model_trained = True
+
         if r2 >= 0.7:
             st.info("💡 R² 값이 0.7 이상으로 매우 신뢰할 수 있는 결과입니다.")
             
@@ -130,10 +202,8 @@ if uploaded_file is not None:
             actual_pred_b64 = fig_to_base64(fig_pred)
 
         with col4:
-            st.subheader("변수 중요도 (실험 영향 요소)")
+            st.subheader(f"변수 중요도 ({'R 엔진' if use_r else 'Python 엔진'})")
             fig_imp, ax_imp = plt.subplots(figsize=(8, 6))
-            importances = model.feature_importances_
-            indices = np.argsort(importances)
             ax_imp.barh(features[indices], importances[indices], color='teal')
             ax_imp.set_xlabel('중요도')
             st.pyplot(fig_imp)
@@ -159,7 +229,7 @@ if uploaded_file is not None:
         <body>
             <h1>고리 비행기 데이터 분석 보고서</h1>
             <div class="section">
-                <h2>1. 머신러닝 학습 결과 (R²: {r2:.4f})</h2>
+                <h2>1. 머신러닝 학습 결과 ({'R 프로그램 엔진' if use_r else 'Python 스탠다드 엔진'} 적용, R²: {r2:.4f})</h2>
                 <img src="data:image/png;base64,{actual_pred_b64}" alt="Actual vs Predicted">
             </div>
             <div class="section">
