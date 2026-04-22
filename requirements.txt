@@ -1,5 +1,8 @@
 streamlit
 pandas
+numpy
+matplotlib
 seaborn
 scikit-learn
-3. **`packages.txt`** (한글 폰트 설치용 리눅스 패키지)
+openpyxl
+xlrd
