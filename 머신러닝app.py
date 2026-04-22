@@ -14,8 +14,8 @@ try:
     import rpy2.robjects as robjects
     from rpy2.robjects import pandas2ri
     from rpy2.robjects.packages import importr
+    from rpy2.robjects.conversion import localconverter
     RPY2_AVAILABLE = True
-    pandas2ri.activate() # Pandas DF <-> R DF 자동 변환 활성화
 except ImportError:
     RPY2_AVAILABLE = False
 
@@ -136,8 +136,9 @@ if uploaded_file is not None:
                         r_train_df = safe_df.loc[X_train.index]
                         r_test_df = safe_df.loc[X_test.index]
                         
-                        r_train_rpy = pandas2ri.py2rpy(r_train_df)
-                        r_test_rpy = pandas2ri.py2rpy(r_test_df)
+                        with localconverter(robjects.default_converter + pandas2ri.converter):
+                            r_train_rpy = pandas2ri.py2rpy(r_train_df)
+                            r_test_rpy = pandas2ri.py2rpy(r_test_df)
 
                         base = importr('base')
                         stats = importr('stats')
@@ -157,11 +158,13 @@ if uploaded_file is not None:
                         model_r = r_rf.randomForest(formula, data=r_train_rpy, ntree=100, importance=True)
                         r_pred = stats.predict(model_r, r_test_rpy)
                         
-                        y_pred = pandas2ri.rpy2py(r_pred)
+                        with localconverter(robjects.default_converter + pandas2ri.converter):
+                            y_pred = pandas2ri.rpy2py(r_pred)
                         r2 = r2_score(y_test, y_pred)
                         
                         # R 엔진에서 변수 중요도 추출 (%IncMSE 기준)
-                        imp_matrix = pandas2ri.rpy2py(r_rf.importance(model_r))
+                        with localconverter(robjects.default_converter + pandas2ri.converter):
+                            imp_matrix = pandas2ri.rpy2py(r_rf.importance(model_r))
                         importances = np.array(imp_matrix[:, 0]) 
                         indices = np.argsort(importances)
                         
