@@ -1,15 +1,4 @@
 fonts-nanum
 r-base
+r-base-dev
 r-cran-randomforest
-
-**2. `requirements.txt` 파일 (파이썬-R 연결 다리 설치)**
-```text
-streamlit
-pandas
-numpy
-matplotlib
-seaborn
-scikit-learn
-openpyxl
-xlrd
-rpy2
